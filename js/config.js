@@ -2,16 +2,10 @@
 export const CONFIG = {
   API_BASE_URL: 'https://api.opendota.com/api',
   STEAM_CDN: 'https://cdn.cloudflare.steamstatic.com',
-  // Jugadores iniciales de muestra (Steam 32-bit Account IDs).
-  // Puedes reemplazarlos por los IDs de tus amigos o agregar nuevos desde la UI.
+  // Jugadores iniciales por defecto (Steam 32-bit Account IDs).
   DEFAULT_PLAYERS: [
-    { id: 70388657, name: 'Dendi' },
-    { id: 86745912, name: 'Arteezy' },
-    { id: 111620041, name: 'Miracle-' },
-    { id: 105248644, name: 'Topson' },
-    { id: 87278757, name: 'Puppey' },
-    { id: 94054712, name: 'N0tail' },
-    { id: 25907144, name: 'Cr1t-' }
+    { id: 57629155, name: 'EvilFoca' },
+    { id: 469201242, name: 'La Alpaca Justiciera' }
   ],
   get DEFAULT_PLAYER_IDS() {
     return this.DEFAULT_PLAYERS.map(p => p.id);
