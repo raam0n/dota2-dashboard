@@ -14,7 +14,7 @@ export const CONFIG = {
   get DEFAULT_PLAYER_IDS() {
     return this.DEFAULT_PLAYERS.map(p => p.id);
   },
-  STORAGE_KEY_PLAYERS: 'dota2_dashboard_player_ids',
-  STORAGE_KEY_DISABLED: 'dota2_dashboard_disabled_ids',
+  STORAGE_KEY_PLAYERS: 'dota2_dashboard_player_ids_v2',
+  STORAGE_KEY_DISABLED: 'dota2_dashboard_disabled_ids_v2',
   POLL_INTERVAL_MS: 45000
 };
