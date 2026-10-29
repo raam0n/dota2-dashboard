@@ -5,7 +5,11 @@ export const CONFIG = {
   // Jugadores iniciales por defecto (Steam 32-bit Account IDs).
   DEFAULT_PLAYERS: [
     { id: 57629155, name: 'EvilFoca' },
-    { id: 469201242, name: 'La Alpaca Justiciera' }
+    { id: 469201242, name: 'La Alpaca Justiciera' },
+    { id: 803382042, name: 'Kouchi' },
+    { id: 1028262342, name: 'Molotrotsky' },
+    { id: 58990899, name: 'El Principito' },
+    { id: 309314472, name: 'Samuel L. Gankson' }
   ],
   get DEFAULT_PLAYER_IDS() {
     return this.DEFAULT_PLAYERS.map(p => p.id);
