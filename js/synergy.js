@@ -112,6 +112,9 @@ export function renderSynergyView(
     });
   });
 
+  // Estadísticas de héroes del jugador seleccionado en el período
+  const playerHeroesMap = new Map();
+
   // Combinaciones exactas de stacks
   const stackCombinations = new Map();
 
@@ -173,6 +176,33 @@ export function renderSynergyView(
           if (m.won) bucket.fullFiveGroupWins += 1;
         }
       }
+    }
+
+    // Acumular héroe jugado por el jugador seleccionado
+    const heroKey = m.heroName || `Hero #${m.heroId}`;
+    if (!playerHeroesMap.has(heroKey)) {
+      playerHeroesMap.set(heroKey, {
+        name: heroKey,
+        icon: m.heroIcon,
+        img: m.heroImg,
+        games: 0,
+        wins: 0,
+        losses: 0,
+        kills: 0,
+        deaths: 0,
+        assists: 0,
+        byPartySize: { 1: 0, 2: 0, 3: 0, 5: 0 }
+      });
+    }
+    const hStat = playerHeroesMap.get(heroKey);
+    hStat.games += 1;
+    if (m.won) hStat.wins += 1;
+    else hStat.losses += 1;
+    hStat.kills += (m.kills || 0);
+    hStat.deaths += (m.deaths || 0);
+    hStat.assists += (m.assists || 0);
+    if (hStat.byPartySize[effectivePartySize] !== undefined) {
+      hStat.byPartySize[effectivePartySize] += 1;
     }
 
     // Actualizar estadísticas con cada compañero presente en la partida
@@ -372,6 +402,49 @@ export function renderSynergyView(
     `;
   }).join('');
 
+  // Héroes jugados por el jugador seleccionado en el período
+  const sortedPlayerHeroes = [...playerHeroesMap.values()].sort((a, b) => {
+    if (b.games !== a.games) return b.games - a.games;
+    return (b.wins / b.games) - (a.wins / a.games);
+  });
+
+  const playerHeroesRowsHtml = sortedPlayerHeroes.map((h, idx) => {
+    const wr = (h.wins / h.games) * 100;
+    const wrClass = wr >= 50 ? 'green' : 'red';
+    const avgKda = `${(h.kills / h.games).toFixed(1)} / ${(h.deaths / h.games).toFixed(1)} / ${(h.assists / h.games).toFixed(1)}`;
+    const partyBadges = [];
+    if (h.byPartySize[1] > 0) partyBadges.push(`<span class="mini-party-tag">👤 Solo: ${h.byPartySize[1]}</span>`);
+    if (h.byPartySize[2] > 0) partyBadges.push(`<span class="mini-party-tag">👥 Dúo: ${h.byPartySize[2]}</span>`);
+    if (h.byPartySize[3] > 0) partyBadges.push(`<span class="mini-party-tag">☘️ Trío: ${h.byPartySize[3]}</span>`);
+    if (h.byPartySize[5] > 0) partyBadges.push(`<span class="mini-party-tag">🖐️ Party 5: ${h.byPartySize[5]}</span>`);
+
+    return `
+      <tr>
+        <td><strong>#${idx + 1}</strong></td>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <img src="${h.icon || h.img || 'assets/icons/dota2-logo.png'}" style="width:28px; border-radius:4px;" onerror="this.onerror=null;this.src='assets/icons/dota2-logo.png';">
+            <strong>${h.name}</strong>
+          </div>
+        </td>
+        <td><strong>${h.games}</strong></td>
+        <td><span class="green">${h.wins}W</span> / <span class="red">${h.losses}L</span></td>
+        <td>
+          <span class="${wrClass}" style="font-weight:700;">${wr.toFixed(1)}%</span>
+          <div class="progress-bar-bg" style="width:100px;">
+            <div class="progress-bar-fill" style="width:${wr}%; background:${wr >= 50 ? '#22c55e' : '#ef4444'};"></div>
+          </div>
+        </td>
+        <td>${avgKda}</td>
+        <td>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            ${partyBadges.join('')}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
   const zeroCompanionsHtml = zeroCompanions.length > 0 ? `
     <div style="margin-top:14px; font-size:0.85rem; color:#888;">
       💤 <strong>Sin partidas juntos en este período (${days}d):</strong>
@@ -467,6 +540,29 @@ export function renderSynergyView(
           </table>
         </div>
         ${zeroCompanionsHtml}
+      </div>
+
+      <!-- Héroes Jugados por el Jugador Seleccionado -->
+      <div class="synergy-section-block">
+        <h3 class="synergy-section-title">🦸 Héroes Jugados por ${currentPlayer.name} (${periodMeta.short} • ${sortedPlayerHeroes.length} héroes)</h3>
+        <div style="overflow-x:auto;">
+          <table class="matches-table" style="font-size:0.94rem;">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Héroe</th>
+                <th>Partidas</th>
+                <th>Récord (V/D)</th>
+                <th>Winrate</th>
+                <th>Promedio K/D/A</th>
+                <th>Jugado en</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${playerHeroesRowsHtml || `<tr><td colspan="7" style="text-align:center; padding:20px; color:#777;">${currentPlayer.name} no registró partidas en los últimos ${days} días.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Formaciones / Stacks Exactos -->
