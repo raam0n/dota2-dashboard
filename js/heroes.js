@@ -1,19 +1,27 @@
 import { formatDateDDMMYYYY } from './api.js';
 
+const HERO_PERIOD_LABELS = {
+  7: { badge: 'Acumulado Semanal (Últimos 7 días)', colHeader: 'Partidas (7d)' },
+  30: { badge: 'Acumulado Mensual (Últimos 30 días)', colHeader: 'Partidas (30d)' },
+  90: { badge: 'Acumulado Trimestral (Últimos 90 días)', colHeader: 'Partidas (90d)' }
+};
+
 /**
- * Renderiza el Top Héroes del grupo (acumulado semanal - últimos 7 días)
+ * Renderiza el Top Héroes del grupo según el período seleccionado (7, 30 o 90 días)
  */
-export function renderTopHeroesView(playersData, container) {
+export function renderTopHeroesView(playersData, container, periodDays = 7, onPeriodChange = null) {
+  const days = HERO_PERIOD_LABELS[periodDays] ? periodDays : 7;
+  const meta = HERO_PERIOD_LABELS[days];
   const nowSec = Date.now() / 1000;
-  const oneWeekAgo = nowSec - (7 * 24 * 60 * 60);
-  const fromDateStr = formatDateDDMMYYYY(oneWeekAgo);
+  const cutoffSec = nowSec - (days * 24 * 60 * 60);
+  const fromDateStr = formatDateDDMMYYYY(cutoffSec);
   const toDateStr = formatDateDDMMYYYY(nowSec);
 
   const heroMap = {};
 
   playersData.filter(Boolean).forEach(p => {
     (p.matches || []).forEach(m => {
-      if (m.started && m.started >= oneWeekAgo && m.heroName) {
+      if (m.started && m.started >= cutoffSec && m.heroName) {
         if (!heroMap[m.heroName]) {
           heroMap[m.heroName] = {
             name: m.heroName,
@@ -72,9 +80,15 @@ export function renderTopHeroesView(playersData, container) {
         <div>
           <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
             <h2>🦸 Héroes más Jugados por el Grupo</h2>
-            <span class="weekly-period-badge">📅 Acumulado Semanal (Últimos 7 días)</span>
+            <span class="weekly-period-badge">📅 ${meta.badge}</span>
           </div>
           <p class="subtitle">Elecciones y rendimiento de héroes (${fromDateStr} al ${toDateStr}).</p>
+        </div>
+        <div class="sort-toggle-group" role="group" aria-label="Filtro de período">
+          <span class="sort-label">Período:</span>
+          <button type="button" class="sort-btn period-btn ${days === 7 ? 'active' : ''}" data-days="7">7 Días (Semanal)</button>
+          <button type="button" class="sort-btn period-btn ${days === 30 ? 'active' : ''}" data-days="30">30 Días</button>
+          <button type="button" class="sort-btn period-btn ${days === 90 ? 'active' : ''}" data-days="90">Últ. 90 Días</button>
         </div>
       </div>
 
@@ -83,16 +97,27 @@ export function renderTopHeroesView(playersData, container) {
           <tr>
             <th>#</th>
             <th>Héroe</th>
-            <th>Partidas (7d)</th>
+            <th>${meta.colHeader}</th>
             <th>V/D</th>
             <th>Winrate</th>
             <th>Promedio K/D/A</th>
           </tr>
         </thead>
         <tbody>
-          ${heroRows || '<tr><td colspan="6" style="text-align:center; padding:20px; color:#777;">Sin partidas registradas en los últimos 7 días</td></tr>'}
+          ${heroRows || `<tr><td colspan="6" style="text-align:center; padding:20px; color:#777;">Sin partidas registradas en los últimos ${days} días</td></tr>`}
         </tbody>
       </table>
     </div>
   `;
+
+  if (onPeriodChange) {
+    container.querySelectorAll('.period-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const selectedDays = parseInt(btn.dataset.days, 10);
+        if (selectedDays && selectedDays !== days) {
+          onPeriodChange(selectedDays);
+        }
+      });
+    });
+  }
 }

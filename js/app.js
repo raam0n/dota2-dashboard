@@ -6,16 +6,18 @@ import {
   saveDisabledPlayerIds, 
   saveActivePlayerIds, 
   getPlayerStats,
-  fetchProfile,
-  formatDateDDMMYYYY
+  getHeroesMap
 } from './api.js';
 import { renderPlayersGrid, showPlayerModal } from './dashboard.js';
 import { renderWeeklyView } from './weekly.js';
 import { renderTopHeroesView } from './heroes.js';
+import { renderSynergyView } from './synergy.js';
 
 const state = {
-  currentTab: 'ranking', // 'ranking' | 'weekly' | 'heroes'
-  eloSortBy: 'current',   // 'current' | 'max'
+  currentTab: 'ranking', // 'ranking' | 'weekly' | 'synergy' | 'heroes'
+  eloSortBy: 'current',  // 'current' | 'max'
+  periodDays: 7,         // 7 | 30 | 90
+  selectedSynergyPlayerId: null,
   playerIds: getActivePlayerIds(),
   playersData: [],
   isLoading: false,
@@ -174,30 +176,48 @@ function setupEventListeners() {
   });
 }
 
+async function fetchPlayersBatch(playerIds, forceRefresh = false) {
+  await getHeroesMap();
+  const results = [];
+  const batchSize = 6;
+  for (let i = 0; i < playerIds.length; i += batchSize) {
+    const batch = playerIds.slice(i, i + batchSize);
+    const batchRes = await Promise.all(batch.map(id => getPlayerStats(id, forceRefresh)));
+    results.push(...batchRes.filter(Boolean));
+  }
+  return results;
+}
+
 async function loadAllData(forceRefresh = false) {
   state.isLoading = true;
   elements.contentArea.innerHTML = `
     <div class="loading-box">
       <div class="spinner"></div>
-      <p>Cargando datos de ${state.playerIds.length} jugadores de Dota 2...</p>
+      <p>Cargando partidas Ranked de ${state.playerIds.length} jugadores de Dota 2...</p>
     </div>
   `;
 
   try {
-    const results = [];
-    const batchSize = 4;
-    for (let i = 0; i < state.playerIds.length; i += batchSize) {
-      const batch = state.playerIds.slice(i, i + batchSize);
-      const batchRes = await Promise.all(batch.map(id => getPlayerStats(id, forceRefresh)));
-      results.push(...batchRes.filter(Boolean));
+    state.playersData = await fetchPlayersBatch(state.playerIds, forceRefresh);
+    if (!state.selectedSynergyPlayerId && state.playersData.length > 0) {
+      state.selectedSynergyPlayerId = state.playersData[0].accountId;
     }
-    state.playersData = results;
   } catch (err) {
     console.error('Error cargando jugadores:', err);
   } finally {
     state.isLoading = false;
     renderCurrentView();
   }
+}
+
+function handlePeriodChange(newDays) {
+  state.periodDays = newDays;
+  renderCurrentView();
+}
+
+function handleSelectSynergyPlayer(playerId) {
+  state.selectedSynergyPlayerId = playerId;
+  renderCurrentView();
 }
 
 function renderCurrentView() {
@@ -216,10 +236,20 @@ function renderCurrentView() {
     renderPlayersGrid(state.playersData, elements.contentArea, onCardClick, onRemovePlayer, state.eloSortBy);
   } else if (state.currentTab === 'weekly') {
     elements.contentArea.className = '';
-    renderWeeklyView(state.playersData, elements.contentArea);
+    renderWeeklyView(state.playersData, elements.contentArea, state.periodDays, handlePeriodChange);
+  } else if (state.currentTab === 'synergy') {
+    elements.contentArea.className = '';
+    renderSynergyView(
+      state.playersData,
+      elements.contentArea,
+      state.periodDays,
+      state.selectedSynergyPlayerId,
+      handlePeriodChange,
+      handleSelectSynergyPlayer
+    );
   } else if (state.currentTab === 'heroes') {
     elements.contentArea.className = '';
-    renderTopHeroesView(state.playersData, elements.contentArea);
+    renderTopHeroesView(state.playersData, elements.contentArea, state.periodDays, handlePeriodChange);
   }
 }
 
@@ -236,6 +266,9 @@ async function onRemovePlayer(accountId) {
   }
   state.playerIds = getActivePlayerIds();
   state.playersData = state.playersData.filter(p => p.accountId !== accountId);
+  if (state.selectedSynergyPlayerId === accountId) {
+    state.selectedSynergyPlayerId = state.playersData[0]?.accountId || null;
+  }
   renderCurrentView();
 }
 
@@ -308,16 +341,10 @@ function updateChecklistSummary() {
 function startPolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = setInterval(async () => {
+    if (document.hidden || state.isLoading) return;
     console.log('🔄 Actualizando datos de Dota 2...');
     try {
-      const results = [];
-      const batchSize = 4;
-      for (let i = 0; i < state.playerIds.length; i += batchSize) {
-        const batch = state.playerIds.slice(i, i + batchSize);
-        const batchRes = await Promise.all(batch.map(id => getPlayerStats(id, true)));
-        results.push(...batchRes.filter(Boolean));
-      }
-      state.playersData = results;
+      state.playersData = await fetchPlayersBatch(state.playerIds, true);
       renderCurrentView();
     } catch (e) {
       console.warn('Error en polling:', e);

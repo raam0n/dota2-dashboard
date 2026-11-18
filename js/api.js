@@ -3,7 +3,9 @@ import { CONFIG } from './config.js';
 const profileCache = new Map();
 const matchesCache = new Map();
 const profileInFlight = new Map();
+const matchesInFlight = new Map();
 let heroesCache = null;
+let heroesInFlight = null;
 
 // Nombres y medallas según rank_tier de Dota 2 (ej: 11 = Herald 1, 80 = Immortal)
 const RANK_TIERS = {
@@ -44,28 +46,36 @@ export function estimateMmr(rankTier, leaderboardRank) {
 }
 
 /**
- * Carga la lista de héroes de Dota 2
+ * Carga la lista de héroes de Dota 2 (con deduplicación de peticiones en vuelo)
  */
 export async function getHeroesMap() {
   if (heroesCache) return heroesCache;
-  try {
-    const res = await fetch(`${CONFIG.API_BASE_URL}/constants/heroes`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    heroesCache = new Map();
-    Object.values(data).forEach(h => {
-      heroesCache.set(h.id, {
-        id: h.id,
-        name: h.localized_name,
-        icon: h.icon ? `${CONFIG.STEAM_CDN}${h.icon}` : '',
-        img: h.img ? `${CONFIG.STEAM_CDN}${h.img}` : ''
+  if (heroesInFlight) return heroesInFlight;
+
+  heroesInFlight = (async () => {
+    try {
+      const res = await fetch(`${CONFIG.API_BASE_URL}/constants/heroes`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      heroesCache = new Map();
+      Object.values(data).forEach(h => {
+        heroesCache.set(h.id, {
+          id: h.id,
+          name: h.localized_name,
+          icon: h.icon ? `${CONFIG.STEAM_CDN}${h.icon}` : '',
+          img: h.img ? `${CONFIG.STEAM_CDN}${h.img}` : ''
+        });
       });
-    });
-    return heroesCache;
-  } catch (err) {
-    console.error('Error cargando lista de héroes:', err);
-    return new Map();
-  }
+      return heroesCache;
+    } catch (err) {
+      console.error('Error cargando lista de héroes:', err);
+      return new Map();
+    } finally {
+      heroesInFlight = null;
+    }
+  })();
+
+  return heroesInFlight;
 }
 
 /**
@@ -151,23 +161,55 @@ export async function fetchProfile(accountId, forceRefresh = false) {
 }
 
 /**
- * Obtiene las partidas recientes de un jugador
+ * Obtiene todas las partidas RANKED (lobby_type=7) de los últimos 90 días de un jugador (sin el tope de 20).
+ * Si el jugador tiene menos de 10 partidas ranked en los últimos 90 días, complementa con las últimas 10 históricas ranked
+ * para mantener siempre la fecha de última partida, racha y el desplegable de la tarjeta.
  */
 export async function fetchRecentMatches(accountId, forceRefresh = false) {
   if (!forceRefresh && matchesCache.has(accountId)) {
     return matchesCache.get(accountId);
   }
-
-  try {
-    const res = await fetch(`${CONFIG.API_BASE_URL}/players/${accountId}/recentMatches`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    matchesCache.set(accountId, data || []);
-    return data || [];
-  } catch (err) {
-    console.error(`Error al obtener partidas recientes de ${accountId}:`, err);
-    return [];
+  if (matchesInFlight.has(accountId)) {
+    return matchesInFlight.get(accountId);
   }
+
+  const req = (async () => {
+    try {
+      const res = await fetch(`${CONFIG.API_BASE_URL}/players/${accountId}/matches?date=90&lobby_type=7`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let data = ((await res.json()) || []).filter(m => m.lobby_type === 7);
+
+      if (data.length < 10) {
+        try {
+          const fallbackRes = await fetch(`${CONFIG.API_BASE_URL}/players/${accountId}/matches?limit=10&lobby_type=7`);
+          if (fallbackRes.ok) {
+            const fallbackData = ((await fallbackRes.json()) || []).filter(m => m.lobby_type === 7);
+            const seenIds = new Set(data.map(m => m.match_id));
+            for (const m of fallbackData) {
+              if (!seenIds.has(m.match_id)) {
+                data.push(m);
+                seenIds.add(m.match_id);
+              }
+            }
+            data.sort((a, b) => (b.start_time || 0) - (a.start_time || 0));
+          }
+        } catch (fallbackErr) {
+          console.warn(`Error en fallback de partidas ranked para ${accountId}:`, fallbackErr);
+        }
+      }
+
+      matchesCache.set(accountId, data);
+      return data;
+    } catch (err) {
+      console.error(`Error al obtener partidas ranked de ${accountId}:`, err);
+      return matchesCache.get(accountId) || [];
+    } finally {
+      matchesInFlight.delete(accountId);
+    }
+  })();
+
+  matchesInFlight.set(accountId, req);
+  return req;
 }
 
 /**
@@ -204,7 +246,7 @@ export async function getPlayerStats(accountId, forceRefresh = false) {
   const currentElo = estimateMmr(rankTier, leaderboardRank);
   const maxElo = profile.mmr_estimate?.estimate ? Math.max(currentElo, profile.mmr_estimate.estimate) : currentElo;
 
-  // Procesamos partidas mapeando héroe, victoria/derrota, etc.
+  // Procesamos partidas mapeando héroe, victoria/derrota, facción y metadatos de la partida
   const matches = (recentMatchesRaw || []).map(m => {
     const isRadiant = m.player_slot < 128;
     const won = (isRadiant && m.radiant_win) || (!isRadiant && !m.radiant_win);
@@ -214,6 +256,12 @@ export async function getPlayerStats(accountId, forceRefresh = false) {
       started: m.start_time,
       duration: m.duration,
       won,
+      isRadiant,
+      partySize: m.party_size || null,
+      gameMode: m.game_mode,
+      lobbyType: m.lobby_type,
+      averageRank: m.average_rank || null,
+      leaverStatus: m.leaver_status || 0,
       heroId: m.hero_id,
       heroName: heroInfo.name,
       heroImg: heroInfo.img,
