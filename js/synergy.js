@@ -30,14 +30,13 @@ export function renderSynergyView(
   const fromDateStr = formatDateDDMMYYYY(cutoffSec);
   const toDateStr = formatDateDDMMYYYY(nowSec);
 
-  // Jugador seleccionado (por defecto el primero con más partidas en el período o el primero de la lista)
+  // Jugador seleccionado
   let currentPlayer = validPlayers.find(p => p.accountId === selectedPlayerId);
   if (!currentPlayer) {
     currentPlayer = validPlayers[0];
   }
 
   // Indexar todas las partidas de todos los jugadores del dashboard por matchId
-  // matchIndex: Map<matchId, Array<{ player, match }>>
   const matchIndex = new Map();
   validPlayers.forEach(p => {
     (p.matches || []).forEach(m => {
@@ -49,7 +48,7 @@ export function renderSynergyView(
     });
   });
 
-  // Contar cantidad de partidas en el período para cada jugador (para mostrar en el selector superior)
+  // Contar cantidad de partidas en el período para cada jugador (selector superior)
   const playerPeriodCounts = new Map();
   validPlayers.forEach(p => {
     const count = (p.matches || []).filter(m => m.started && m.started >= cutoffSec).length;
@@ -59,46 +58,28 @@ export function renderSynergyView(
   // Filtrar las partidas ranked del jugador seleccionado en el período
   const playerMatches = (currentPlayer.matches || []).filter(m => m.started && m.started >= cutoffSec);
 
-  // Estructuras de acumulación para el jugador seleccionado
+  // Estructuras de acumulación para Party de 1, 2, 3 y 5
   const partyBuckets = {
     1: {
       size: 1,
       label: 'Party de 1 (Solo Queue)',
       icon: '👤',
       total: 0,
-      wins: 0,
-      pureGroup: 0,
-      pureGroupWins: 0,
-      withRandom: 0,
-      withRandomWins: 0,
-      fourPlusOneRandom: 0,
-      fourPlusOneRandomWins: 0
+      wins: 0
     },
     2: {
       size: 2,
       label: 'Party de 2 (Dúo)',
       icon: '👥',
       total: 0,
-      wins: 0,
-      pureGroup: 0,
-      pureGroupWins: 0,
-      withRandom: 0,
-      withRandomWins: 0,
-      fourPlusOneRandom: 0,
-      fourPlusOneRandomWins: 0
+      wins: 0
     },
     3: {
       size: 3,
       label: 'Party de 3 (Trío)',
       icon: '☘️',
       total: 0,
-      wins: 0,
-      pureGroup: 0,
-      pureGroupWins: 0,
-      withRandom: 0,
-      withRandomWins: 0,
-      fourPlusOneRandom: 0,
-      fourPlusOneRandomWins: 0
+      wins: 0
     },
     5: {
       size: 5,
@@ -106,14 +87,10 @@ export function renderSynergyView(
       icon: '🖐️',
       total: 0,
       wins: 0,
-      pureGroup: 0,
-      pureGroupWins: 0,
-      withRandom: 0,
-      withRandomWins: 0,
+      fullFiveGroup: 0,
+      fullFiveGroupWins: 0,
       fourPlusOneRandom: 0,
-      fourPlusOneRandomWins: 0,
-      otherRandomStack: 0,
-      otherRandomStackWins: 0
+      fourPlusOneRandomWins: 0
     }
   };
 
@@ -142,8 +119,8 @@ export function renderSynergyView(
   let totalWins = 0;
   let totalInParty = 0;
   let totalInPartyWins = 0;
-  let totalMatchesWithRandom = 0;
-  let totalMatchesWithRandomWins = 0;
+  let totalFullFiveGroup = 0;
+  let totalFullFiveGroupWins = 0;
   let totalFourPlusOneRandom = 0;
   let totalFourPlusOneRandomWins = 0;
 
@@ -158,41 +135,24 @@ export function renderSynergyView(
 
     const knownGroupCount = 1 + companionsInMatch.length;
 
-    // Determinar el party_size reportado por OpenDota (en el jugador o en alguno de sus compañeros de esa partida)
-    let reportedPartySize = m.partySize;
-    if (!reportedPartySize) {
-      for (const entry of participants) {
-        if (entry.match.partySize) {
-          reportedPartySize = entry.match.partySize;
-          break;
-        }
-      }
-    }
-
-    // En Ranked (lobby_type = 7) no existen parties de 4; si hay 4 del grupo, sí o sí completaron con un 5to random
-    let effectivePartySize = reportedPartySize || knownGroupCount;
-    if (knownGroupCount > effectivePartySize) {
-      effectivePartySize = knownGroupCount;
-    }
-    if (effectivePartySize === 4 || knownGroupCount === 4) {
-      effectivePartySize = 5;
-    }
-    if (![1, 2, 3, 5].includes(effectivePartySize)) {
-      effectivePartySize = effectivePartySize > 3 ? 5 : 1;
-    }
-
-    const randomsInParty = Math.max(0, effectivePartySize - knownGroupCount);
-    const hasRandom = randomsInParty > 0;
-    const isFourPlusOne = effectivePartySize === 5 && knownGroupCount === 4;
+    // Clasificación según integrantes del grupo:
+    // 1 -> Solo Queue (1)
+    // 2 -> Party de 2 (Dúo)
+    // 3 -> Party de 3 (Trío)
+    // 4 -> Party de 5 (4 del grupo + 1 Random para completar, ya que Dota no permite 4 en Ranked)
+    // 5 -> Party de 5 (5 del grupo)
+    const isFourPlusOne = knownGroupCount === 4;
+    const isFullFiveGroup = knownGroupCount >= 5;
+    const effectivePartySize = knownGroupCount >= 4 ? 5 : knownGroupCount;
 
     if (effectivePartySize > 1) {
       totalInParty += 1;
       if (m.won) totalInPartyWins += 1;
     }
 
-    if (hasRandom) {
-      totalMatchesWithRandom += 1;
-      if (m.won) totalMatchesWithRandomWins += 1;
+    if (isFullFiveGroup) {
+      totalFullFiveGroup += 1;
+      if (m.won) totalFullFiveGroupWins += 1;
     }
 
     if (isFourPlusOne) {
@@ -204,19 +164,14 @@ export function renderSynergyView(
     if (bucket) {
       bucket.total += 1;
       if (m.won) bucket.wins += 1;
-      if (hasRandom) {
-        bucket.withRandom += 1;
-        if (m.won) bucket.withRandomWins += 1;
+      if (effectivePartySize === 5) {
         if (isFourPlusOne) {
           bucket.fourPlusOneRandom += 1;
           if (m.won) bucket.fourPlusOneRandomWins += 1;
-        } else if (effectivePartySize === 5) {
-          bucket.otherRandomStack += 1;
-          if (m.won) bucket.otherRandomStackWins += 1;
+        } else {
+          bucket.fullFiveGroup += 1;
+          if (m.won) bucket.fullFiveGroupWins += 1;
         }
-      } else {
-        bucket.pureGroup += 1;
-        if (m.won) bucket.pureGroupWins += 1;
       }
     }
 
@@ -239,12 +194,11 @@ export function renderSynergyView(
     // Registrar formación / stack si jugó en party (party > 1)
     if (effectivePartySize > 1) {
       const sortedCompNames = companionsInMatch.map(c => c.name).sort((a, b) => a.localeCompare(b));
-      const key = `P${effectivePartySize}|${sortedCompNames.join('+')}|R${randomsInParty}`;
+      const key = `P${effectivePartySize}|${sortedCompNames.join('+')}|R${isFourPlusOne ? 1 : 0}`;
       if (!stackCombinations.has(key)) {
         stackCombinations.set(key, {
           partySize: effectivePartySize,
           companionNames: sortedCompNames,
-          randomsCount: randomsInParty,
           isFourPlusOne,
           games: 0,
           wins: 0
@@ -258,7 +212,7 @@ export function renderSynergyView(
 
   const overallWr = totalMatches > 0 ? ((totalWins / totalMatches) * 100).toFixed(1) : '0.0';
   const partyWr = totalInParty > 0 ? ((totalInPartyWins / totalInParty) * 100).toFixed(1) : '0.0';
-  const randomWr = totalMatchesWithRandom > 0 ? ((totalMatchesWithRandomWins / totalMatchesWithRandom) * 100).toFixed(1) : '0.0';
+  const fullFiveWr = totalFullFiveGroup > 0 ? ((totalFullFiveGroupWins / totalFullFiveGroup) * 100).toFixed(1) : '0.0';
   const fourPlusOneWr = totalFourPlusOneRandom > 0 ? ((totalFourPlusOneRandomWins / totalFourPlusOneRandom) * 100).toFixed(1) : '0.0';
 
   // Selector de jugador
@@ -276,7 +230,7 @@ export function renderSynergyView(
     `;
   }).join('');
 
-  // Tarjetas de Party de 1, 2, 3, 5
+  // Tarjetas de Party de 1, 2, 3, 5 (solo la de 5 discrimina 5 del grupo vs 4 + 1 random)
   const partySizeCardsHtml = [1, 2, 3, 5].map(size => {
     const b = partyBuckets[size];
     const losses = b.total - b.wins;
@@ -285,45 +239,20 @@ export function renderSynergyView(
     const wrClass = b.total === 0 ? '' : (wr >= 50 ? 'green' : 'red');
 
     let breakdownHtml = '';
-    if (size === 1) {
-      breakdownHtml = `
-        <div class="party-sub-row">
-          <span>👤 Solitario (Sin party)</span>
-          <strong>${b.total} PJ</strong>
-        </div>
-      `;
-    } else if (size === 2 || size === 3) {
-      const pureWr = b.pureGroup > 0 ? `${((b.pureGroupWins / b.pureGroup) * 100).toFixed(0)}% WR` : '-';
-      const rndWr = b.withRandom > 0 ? `${((b.withRandomWins / b.withRandom) * 100).toFixed(0)}% WR` : '-';
-      breakdownHtml = `
-        <div class="party-sub-row">
-          <span>✅ Puro del Dashboard (${size} del grupo)</span>
-          <strong>${b.pureGroup} PJ (${pureWr})</strong>
-        </div>
-        <div class="party-sub-row ${b.withRandom > 0 ? 'random-highlight' : ''}">
-          <span>🎲 Con Random externo</span>
-          <strong>${b.withRandom} PJ (${rndWr})</strong>
-        </div>
-      `;
-    } else if (size === 5) {
-      const pureWr = b.pureGroup > 0 ? `${((b.pureGroupWins / b.pureGroup) * 100).toFixed(0)}% WR` : '-';
+    if (size === 5) {
+      const pureWr = b.fullFiveGroup > 0 ? `${((b.fullFiveGroupWins / b.fullFiveGroup) * 100).toFixed(0)}% WR` : '-';
       const fourWr = b.fourPlusOneRandom > 0 ? `${((b.fourPlusOneRandomWins / b.fourPlusOneRandom) * 100).toFixed(0)}% WR` : '-';
-      const otherWr = b.otherRandomStack > 0 ? `${((b.otherRandomStackWins / b.otherRandomStack) * 100).toFixed(0)}% WR` : '-';
       breakdownHtml = `
-        <div class="party-sub-row">
-          <span>✅ Stack 5 Puro (5 del Dashboard)</span>
-          <strong>${b.pureGroup} PJ (${pureWr})</strong>
+        <div class="party-breakdown-box">
+          <div class="party-sub-row">
+            <span>✅ 5 del Grupo (Stack completo)</span>
+            <strong>${b.fullFiveGroup} PJ (${pureWr})</strong>
+          </div>
+          <div class="party-sub-row ${b.fourPlusOneRandom > 0 ? 'random-highlight' : ''}">
+            <span>🎲 4 del Grupo + 1 Random</span>
+            <strong>${b.fourPlusOneRandom} PJ (${fourWr})</strong>
+          </div>
         </div>
-        <div class="party-sub-row ${b.fourPlusOneRandom > 0 ? 'random-highlight' : ''}">
-          <span>🎲 4 del Grupo + 1 Random (5to externo)</span>
-          <strong>${b.fourPlusOneRandom} PJ (${fourWr})</strong>
-        </div>
-        ${b.otherRandomStack > 0 ? `
-        <div class="party-sub-row random-highlight">
-          <span>🎲 Stack 5 con 2+ Randoms externos</span>
-          <strong>${b.otherRandomStack} PJ (${otherWr})</strong>
-        </div>
-        ` : ''}
       `;
     }
 
@@ -345,12 +274,10 @@ export function renderSynergyView(
             <div class="party-wr-label">Winrate</div>
           </div>
         </div>
-        <div class="progress-bar-bg" style="margin: 10px 0 12px 0;">
+        <div class="progress-bar-bg" style="margin: 10px 0 ${size === 5 ? '12px' : '0'} 0;">
           <div class="progress-bar-fill" style="width:${b.total > 0 ? wr : 0}%; background:${wr >= 50 ? '#22c55e' : '#ef4444'};"></div>
         </div>
-        <div class="party-breakdown-box">
-          ${breakdownHtml}
-        </div>
+        ${breakdownHtml}
       </div>
     `;
   }).join('');
@@ -375,7 +302,7 @@ export function renderSynergyView(
     if (c.byPartySize[3] > 0) badges.push(`<span class="mini-party-tag">☘️ Trío: ${c.byPartySize[3]}</span>`);
     if (c.byPartySize[5] > 0) {
       const pure5 = c.byPartySize[5] - c.inFourPlusOne;
-      if (pure5 > 0) badges.push(`<span class="mini-party-tag">🖐️ Stack 5: ${pure5}</span>`);
+      if (pure5 > 0) badges.push(`<span class="mini-party-tag tag-pure">🖐️ Stack 5: ${pure5}</span>`);
       if (c.inFourPlusOne > 0) badges.push(`<span class="mini-party-tag tag-random">🎲 4+1 Random: ${c.inFourPlusOne}</span>`);
     }
 
@@ -411,16 +338,20 @@ export function renderSynergyView(
     `;
   }).join('');
 
-  // Formaciones exactas más jugadas
+  // Formaciones exactas más jugadas (solo en Party de 5 se muestra badge de 5 del Grupo vs +1 Random)
   const sortedStacks = [...stackCombinations.values()].sort((a, b) => b.games - a.games);
   const stacksRowsHtml = sortedStacks.map((st, idx) => {
     const losses = st.games - st.wins;
     const wr = (st.wins / st.games) * 100;
     const wrClass = wr >= 50 ? 'green' : 'red';
     const membersNames = [currentPlayer.name, ...st.companionNames];
-    const randomBadge = st.randomsCount > 0
-      ? `<span class="mini-party-tag tag-random">+ 🎲 ${st.randomsCount} Random${st.randomsCount > 1 ? 's' : ''} externo${st.randomsCount > 1 ? 's' : ''}</span>`
-      : `<span class="mini-party-tag tag-pure">100% Grupo</span>`;
+
+    let partyExtraBadge = '';
+    if (st.partySize === 5) {
+      partyExtraBadge = st.isFourPlusOne
+        ? `<span class="mini-party-tag tag-random">+ 🎲 1 Random</span>`
+        : `<span class="mini-party-tag tag-pure">5 del Grupo</span>`;
+    }
 
     return `
       <tr>
@@ -429,7 +360,7 @@ export function renderSynergyView(
         <td>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
             <span>${membersNames.join(' + ')}</span>
-            ${randomBadge}
+            ${partyExtraBadge}
           </div>
         </td>
         <td><strong>${st.games}</strong></td>
@@ -492,17 +423,17 @@ export function renderSynergyView(
           </div>
         </div>
         <div class="metric-card">
-          <div class="label">🎲 Parties de 5 con "4 + 1 Random"</div>
-          <div class="value" style="color:#fbbf24;">${totalFourPlusOneRandom}</div>
+          <div class="label">🖐️ Party de 5 Completa (5 del Grupo)</div>
+          <div class="value">${totalFullFiveGroup}</div>
           <div class="metric-sub">
-            4 del dashboard + 1 externo • WR: <strong class="${parseFloat(fourPlusOneWr) >= 50 ? 'green' : 'red'}">${totalFourPlusOneRandom > 0 ? `${fourPlusOneWr}%` : '-'}</strong>
+            Stack 5 completo • WR: <strong class="${parseFloat(fullFiveWr) >= 50 ? 'green' : 'red'}">${totalFullFiveGroup > 0 ? `${fullFiveWr}%` : '-'}</strong>
           </div>
         </div>
         <div class="metric-card">
-          <div class="label">🎲 Total Parties con algún Random</div>
-          <div class="value">${totalMatchesWithRandom}</div>
+          <div class="label">🎲 Party de 5 con Random (4 + 1)</div>
+          <div class="value" style="color:#fbbf24;">${totalFourPlusOneRandom}</div>
           <div class="metric-sub">
-            Incluyendo al menos 1 externo al dashboard • WR: <strong class="${parseFloat(randomWr) >= 50 ? 'green' : 'red'}">${totalMatchesWithRandom > 0 ? `${randomWr}%` : '-'}</strong>
+            4 del grupo + 1 random • WR: <strong class="${parseFloat(fourPlusOneWr) >= 50 ? 'green' : 'red'}">${totalFourPlusOneRandom > 0 ? `${fourPlusOneWr}%` : '-'}</strong>
           </div>
         </div>
       </div>
